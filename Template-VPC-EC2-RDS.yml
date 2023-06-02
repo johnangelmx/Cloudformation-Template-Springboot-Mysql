@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: "2010-09-09"  # Versión del formato de la plantilla de AWS
+
+Description: |
+  Creacion de pila para entorno de
+  ejecucion de un servidor Ecommerce
+  # Descripción de la plantilla
+
+Parameters:
+  AmiIdParameter:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/canonical/ubuntu/server/jammy/stable/current/amd64/hvm/ebs-gp2/ami-id'
+    # Parámetro que especifica la AMI de Ubuntu linuxx a utilizar
+  InstanceTypeParameter:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+      - t3.small
+      - m5.large
+    Description: Seleccione el tipo de instancia que desea crear.
+  KeyPairParameter:
+    Type: String
+    Default: 'Eshop'
+
+Resources:
+  ViandaMarketVPC:
+    Type: AWS::EC2::VPC  # Creación de una VPC (Virtual Private Cloud)
+    Properties:
+      CidrBlock: "10.0.0.0/16"  # Bloque CIDR de la VPC
+      EnableDnsHostnames: true  # Habilita los nombres de DNS para la VPC
+      EnableDnsSupport: true  # Habilita el soporte de DNS para la VPC
+      Tags:
+        - Key: "Name"
+          Value: "Vianda Markey VPC"  # Etiqueta para identificar la VPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway  # Creación de una puerta de enlace de Internet
+    Properties:
+      Tags:
+        - Key: "Name"
+          Value: "Internet Gateway Vianda Market"  # Etiqueta para identificar la puerta de enlace
+
+  IGWattachVPC:
+    Type: AWS::EC2::VPCGatewayAttachment  # Asociación de la puerta de enlace de Internet con la VPC
+    DependsOn:
+      - ViandaMarketVPC
+      - InternetGateway
+    Properties:
+      VpcId: !Ref ViandaMarketVPC  # Referencia a la VPC creada anteriormente
+      InternetGatewayId: !Ref InternetGateway  # Referencia a la puerta de enlace de Internet
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable  # Creación de una tabla de enrutamiento
+    DependsOn: IGWattachVPC
+    Properties:
+      VpcId: !Ref ViandaMarketVPC  # Referencia a la VPC creada anteriormente
+      Tags:
+        - Key: "Name"
+          Value: "Tabla de ruteo Vianda Market"  # Etiqueta para identificar la tabla de enrutamiento
+
+  PublicRouteTable:
+    Type: AWS::EC2::Route  # Creación de una ruta pública en la tabla de enrutamiento
+    DependsOn:
+      - RouteTable
+      - IGWattachVPC
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"  # CIDR de destino para la ruta (todo el tráfico saliente)
+      GatewayId: !Ref InternetGateway  # Referencia a la puerta de enlace de Internet
+      RouteTableId: !Ref RouteTable  # Referencia a la tabla de enrutamiento
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet  # Creación de una subred pública
+    DependsOn: PublicRouteTable
+    Properties:
+      VpcId: !Ref ViandaMarketVPC  # Referencia a la VPC creada anteriormente
+      MapPublicIpOnLaunch: true  # Asigna automáticamente una IP pública a las instancias lanzadas en esta subred
+      CidrBlock: "10.0.1.0/24"  # Bloque CIDR de la subred pública
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ""  # Obtiene la primera zona de disponibilidad en la región actual
+      Tags:
+        - Key: "Name"
+          Value: "Public Subnet 1"  # Etiqueta para identificar la subred pública
+
+  PSattachRT1:
+    Type: AWS::EC2::SubnetRouteTableAssociation  # Asociación de la subred pública con la tabla de enrutamiento
+    DependsOn: PublicSubnet1
+    Properties:
+      RouteTableId: !Ref RouteTable  # Referencia a la tabla de enrutamiento
+      SubnetId: !Ref PublicSubnet1  # Referencia a la subred pública
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet  # Creación de una subred pública
+    DependsOn: PSattachRT1
+    Properties:
+      VpcId: !Ref ViandaMarketVPC  # Referencia a la VPC creada anteriormente
+      MapPublicIpOnLaunch: true  # Asigna automáticamente una IP pública a las instancias lanzadas en esta subred
+      CidrBlock: "10.0.2.0/24"  # Bloque CIDR de la subred pública
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ""  # Obtiene la primera zona de disponibilidad en la región actual
+      Tags:
+        - Key: "Name"
+          Value: "Public Subnet 2"  # Etiqueta para identificar la subred pública
+
+  PSattachRT2:
+    Type: AWS::EC2::SubnetRouteTableAssociation  # Asociación de la subred pública con la tabla de enrutamiento
+    DependsOn: PublicSubnet2
+    Properties:
+      RouteTableId: !Ref RouteTable  # Referencia a la tabla de enrutamiento
+      SubnetId: !Ref PublicSubnet2  # Referencia a la subred pública
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup  # Creación de un grupo de seguridad
+    DependsOn: PSattachRT2
+    Properties:
+      GroupName: "SecurityGroup ViandaMarket"  # Nombre del grupo de seguridad
+      GroupDescription: "Habilitado para ssh"  # Descripción del grupo de seguridad
+      VpcId: !Ref ViandaMarketVPC  # Referencia a la VPC creada anteriormente
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22  # Permite el tráfico SSH
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: "Name"
+          Value: "Grupo de seguridad para ssh Vianda Market"  # Etiqueta para identificar el grupo de seguridad
+
+  BackendInstance:
+    Type: AWS::EC2::Instance  # Creación de una instancia del servidor de Minecraft
+    DependsOn: SecurityGroup
+    Properties:
+      ImageId: !Ref AmiIdParameter  # Referencia a la AMI de Amazon Linux especificada en el parámetro
+      KeyName: !Ref KeyPairParameter
+      UserData: "IyEvYmluL2Jhc2gKc3VkbyBhcHQtZ2V0IHVwZGF0ZSAteQpzdWRvIGFwdC1nZXQgaW5zdGFsbCBvcGVuamRrLTE3LWpkay1oZWFkbGVzcyAteQpzdWRvIGFwdC1nZXQgLXkgaW5zdGFsbCB2aW0gYXB0LXRyYW5zcG9ydC1odHRwcyBkaXJtbmdyIHdnZXQgc29mdHdhcmUtcHJvcGVydGllcy1jb21tb24Kc3VkbyBhZGQtYXB0LXJlcG9zaXRvcnkgcHBhOmN3Y2hpZW4vZ3JhZGxlCnN1ZG8gYXB0IHVwZGF0ZSAmJiBzdWRvIGFwdCAteSBpbnN0YWxsIGdyYWRsZQplY2hvICdTZSBpbnN0YWxvIGphdmEgMTcn"
+      # Datos de usuario utilizados para ejecutar comandos en la instancia después del inicio (Script de inicio)
+      InstanceType: !Ref InstanceTypeParameter  # Tipo de instancia para el servidor de Minecraft
+      SecurityGroupIds:
+        - !Ref SecurityGroup  # Referencia al grupo de seguridad creado anteriormente
+      SubnetId: !Ref PublicSubnet1  # Referencia a la subred pública
+      Tags:
+        - Key: "Name"
+          Value: "Servidor Backend ViandaMarket"  # Etiqueta para identificar la instancia del servidor de Minecraft
+  MyEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  MyEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref BackendInstance
+      AllocationId: !GetAtt MyEIP.AllocationId
+
+  myDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: myDBSecurityGroup
+      GroupDescription: Security group for RDS instance
+      VpcId: !Ref ViandaMarketVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "3306"
+          ToPort: "3306"
+          SourceSecurityGroupId: !Ref SecurityGroup
+        - IpProtocol: tcp
+          FromPort: "3306"
+          ToPort: "3306"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: "Name"
+          Value: "DB Security Group"
+
+  myDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS instance
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: "Name"
+          Value: "DB Subnet Group"
+
+  myDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t4g.micro
+      Engine: MySQL
+      EngineVersion: "8.0"
+      DBName: vianda_market_db
+      MasterUsername: admin
+      MasterUserPassword: Pa$$w0rd
+      AllocatedStorage: "20"
+      PubliclyAccessible: true
+      VPCSecurityGroups:
+        - !Ref myDBSecurityGroup
+      DBSubnetGroupName:
+        Ref: myDBSubnetGroup
+      Tags:
+        - Key: "Name"
+          Value: "DB Instance"
+
+Outputs:
+  PublicIp:
+    Description: Server Public IP  # Descripción de la salida (IP pública del servidor)
+    Value: !GetAtt BackendInstance.PublicIp  # Obtiene la IP pública de la instancia del servidor
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicIp"  # Nombre de exportación para la salida
+  RDSInstanceEndpoint:
+    Description: Endpoint of the RDS instance
+    Value: !GetAtt myDBInstance.Endpoint.Address
