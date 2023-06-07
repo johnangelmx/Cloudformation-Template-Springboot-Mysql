@@ -9,7 +9,7 @@ Parameters:
   AmiIdParameter:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/canonical/ubuntu/server/jammy/stable/current/amd64/hvm/ebs-gp2/ami-id'
-    # Parámetro que especifica la AMI de Ubuntu linuxx a utilizar
+    # Parámetro que especifica la AMI de Ubuntu linux a utilizar
   InstanceTypeParameter:
     Type: String
     Default: t3.micro
@@ -147,18 +147,10 @@ Resources:
       Tags:
         - Key: "Name"
           Value: "Servidor Backend ViandaMarket"  # Etiqueta para identificar la instancia del servidor de Minecraft
-  MyEIP:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-  MyEIPAssociation:
-    Type: AWS::EC2::EIPAssociation
-    Properties:
-      InstanceId: !Ref BackendInstance
-      AllocationId: !GetAtt MyEIP.AllocationId
 
   myDBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    DependsOn: BackendInstance
     Properties:
       GroupName: myDBSecurityGroup
       GroupDescription: Security group for RDS instance
@@ -178,6 +170,7 @@ Resources:
 
   myDBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
+    DependsOn: myDBSecurityGroup
     Properties:
       DBSubnetGroupDescription: Subnet group for RDS instance
       SubnetIds:
@@ -189,10 +182,10 @@ Resources:
 
   myDBInstance:
     Type: AWS::RDS::DBInstance
+    DependsOn: myDBSubnetGroup
     Properties:
-      DBInstanceClass: db.t4g.micro
-      Engine: MySQL
-      EngineVersion: "8.0"
+      DBInstanceClass: db.t3.micro
+      Engine: mysql
       DBName: vianda_market_db
       MasterUsername: admin
       MasterUserPassword: Pa$$w0rd
